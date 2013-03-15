@@ -64,6 +64,15 @@
 "                                            the note, but will cause you git history
 "                                            to get quite large if you update the notes
 "                                            too frequently.
+"			g:TimeKeeperWorkingWeekLength	 Number of days in the working week [5]
+"			g:TimeKeeperWorkingDaySecs		 Number of seconds in the working day [27000]
+"			g:TimeKeeperUseAnnotatedTags     If set to '1' then use the annotated tags
+"                                            to look for the current job name. It also
+"                                            will fall back to the branch name if the
+"                                            tag is not set.[0]
+"           g:TimeKeeperTagPrefix            This is the prefix to the tag that is to
+"                                            be removed before the job name is taken from
+"                                            the tag.
 "           g:TimeKeeperStartOnLoad          Start the TimeKeeper on vim load, this 
 "                                            should not be done before the default file
 "                                            has been created by running the start.
@@ -124,7 +133,23 @@ if !exists("s:TimeKeeperPlugin")
 	endif
 
 	if !exists("g:TimeKeeperGitNoteUpdateTimeSec")
-		let g:TimeKeeperGitNoteUpdateTimeSec = 60 * 60		" Update the git note once an hour - This will only be updated when the timesheet is updates.
+		let g:TimeKeeperGitNoteUpdateTimeSec = 60 * 60	" Update the git note once an hour - This will only be updated when the timesheet is updates.
+	endif
+	
+	if !exists("g:TimeKeeperWorkingWeekLength")			" Number of days in the working week
+		let g:TimeKeeperWorkingWeekLength = 5
+	endif
+
+	if !exists("g:TimeKeeperWorkingDaySecs")			" number of seconds in the working day
+		let g:TimeKeeperWorkingDaySecs = float2nr(7.5*60*60)
+	endif
+
+	if !exists("g:TimeKeeperUseAnnotatedTags")			" default to not using annotated tags
+		let g:TimeKeeperUseAnnotatedTags = 0
+
+		if !exists("g:TimeKeeperTagPrefix")				" the tag prefix for the tag versions
+			let g:TimeKeeperTagPrefix = ''
+		endif
 	endif
 
 	" Set the flag start on Load
@@ -149,11 +174,17 @@ if !exists("s:TimeKeeperPlugin")
 	let s:start_editor_time = localtime()
 	let s:start_tracking_time = 0
 
+	let s:working_week_secs = g:TimeKeeperWorkingDaySecs * g:TimeKeeperWorkingWeekLength
+
+	let s:times = {	'm':60,'min':60,'mins':60,'minutes':60,
+				\	'h':3600,'hour':3600,'hours':3600,
+				\	'd': g:TimeKeeperWorkingDaySecs,'day':g:TimeKeeperWorkingDaySecs,'days':g:TimeKeeperWorkingDaySecs,
+				\	'w': s:working_week_secs,'week': s:working_week_secs,'weeks': s:working_week_secs}
+
 	" needed to hold the start dir so the :cd changes can be detected
 	let s:current_dir = getcwd()
 
 	augroup TimeKeeper						" Create the group to hold all the events.
-
 "																			}}}
 " PUBLIC FUNCTIONS
 " FUNCTION: TimeKeeper_StopTracking() 						 				{{{
@@ -392,6 +423,33 @@ function! TimeKeeper_IsServer()
 	endif
 endfunction
 "																			}}}
+" FUNCTION: TimeKeeper_AddAdditionalTime()  								{{{
+"
+" This function will add additional time to the current project.
+" The format of the time string that is to be used is one of the following:
+" 
+"   (time) (units)
+"
+" 'time' can be specfied as a simple real number, i.e. 1, or 1.5
+" 'units' are minutes,hours,days,weeks or m,h,d,w,min,mins,minutes,etc...
+"
+" vars:
+"	none
+"
+" returns:
+"	nothing
+"
+function! TimeKeeper_AddAdditionalTime()
+	let time_string = input("Time to Add: ","")
+	
+	if !empty(time_string)
+		let time = s:TimeKeeper_ConvertTimeStringToSeconds(time_string)
+		if time > 0
+			call TimeKeeper_UpdateJob(s:current_project,s:current_job,time)
+		endif
+	endif
+endfunction
+"																			}}}
 " INTERNAL FUNCTIONS
 " FUNCTION: s:TimeKeeper_GetTimeString(time) 								{{{
 "  
@@ -455,7 +513,7 @@ function! TimeKeeper_UpdateJob(project_name, job_name, time)
 			call remote_expr(s:current_server,job_string)
 		catch /E449/
 			" find the server
-			call TimeKeeper_FindServer()
+			call s:TimeKeeper_FindServer()
 
 			if s:current_server == ''
 				" check to see if we need to update the timesheet file - as we are now master
@@ -659,16 +717,45 @@ endfunction
 "
 function! s:TimeKeeper_SetJobNameFromGitRepository()
 	let root = finddir(".git",expand('%:h'). "," . expand('%:p:h') . ";" . $HOME)
+	let s:current_job = ''
 	
 	" get the name of the directory will use as the project name
 	let s:current_project = substitute(fnamemodify(root,':p:h:h'),fnamemodify(root,':p:h:h:h') . '/','','')
 	
-    let branch = system("git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* //'")
+	if g:TimeKeeperUseAnnotatedTags == 1
+    	let s:current_job = system("git describe --abbrev=0")
+		if len(split(s:current_job,"[\x0a\x0d]")) == 1
+			" ok, remove any newlines
+			let s:current_job = substitute(s:current_job,"[\x0a\x0d]",'','g')
 
-	if branch != ''
-        let s:current_job = substitute(branch, '\n', '', 'g')
-	else
-	    let s:current_job = ''
+			if g:TimeKeeperTagPrefix != ''
+				" remove the prefix - if it is found
+				let s:current_job = substitute(s:current_job,'^' . g:TimeKeeperTagPrefix,'','')
+			endif
+		else
+			" if more than on line then it is an error message
+			let s:current_job = ''
+		endif
+	endif
+
+	if s:current_job == ''
+		let branch = ''
+		let lines = split(system("git branch 2> /dev/null"),"[\x0a\x0d]")
+
+		" find the current branch
+		for line in lines
+			if line[0] == '*'
+				" remove the indicator
+				let branch = strpart(line,2)
+				break
+			endif
+		endfor
+
+		if branch != ''
+			let s:current_job = substitute(branch, '\n', '', 'g')
+		else
+			let s:current_job = ''
+		endif
 	endif
 endfunction
 "																			}}}
@@ -782,6 +869,31 @@ function! s:TimeKeeper_RequestCreate()
 	endif
 endfunction
 "																			}}}
+" FUNCTION: s:TimeKeeper_ConvertTimeStringToSeconds()						{{{
+"
+" This function will take the string that has been passed in and convert it
+" to seconds.
+"
+" vars:
+"	user_string	This is the string that is to be converted to seconds.
+"
+" returns:
+"	0 - if time is invalid
+"   x - The number of seconds as specified.
+"
+let s:regex_short_time = '^\([0-9]*\|[0-9]*\.[0-9]*\)\s*\(m\|h\|d\|w\|mins\|day\|days\|hour\|week\|hours\|weeks\|minute\|minutes\)$'
+
+function! s:TimeKeeper_ConvertTimeStringToSeconds(user_string)
+	let time_list = matchlist(a:user_string,s:regex_short_time)
+	let seconds = 0
+
+	if (!empty(time_list))
+		let seconds = float2nr(s:times[time_list[2]] * str2float(time_list[1]))
+	endif
+
+	return seconds
+endfunction
+"																			}}}
 " AUTOCMD FUNCTIONS
 " FUNCTION: s:TimeKeeper_UserStartedTyping()								{{{
 "
@@ -863,7 +975,6 @@ function! s:TimeKeeper_CheckForCWDChange()
 	endif
 endfunction
 "																			}}}
-
 " Start tracking if the user wants us to.
 if g:TimeKeeperStartOnLoad
 	call TimeKeeper_StartTracking()
