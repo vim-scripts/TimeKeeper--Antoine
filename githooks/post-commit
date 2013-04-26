@@ -28,9 +28,9 @@ then
 	if [ "$TIMEKEEPER_TIMESHEET" == "" ];
 	then
 		# check for local file first
-		if [[ -w timekeeper.tmk && -r timekeeper.tmk ]];
+		if [[ -w ".timekeeper.tmk" && -r ".timekeeper.tmk" ]];
 		then
-			TIMEKEEPER_TIMESHEET="timekeeper.tmk"
+			TIMEKEEPER_TIMESHEET=".timekeeper.tmk"
 		else
 			# if local not found the search for global 
 			if [[ -w "$HOME/.timekeeper.tmk" && -r "$HOME/.timekeeper.tmk" ]];
@@ -45,18 +45,20 @@ then
 	then
 		current_project=$(basename `git rev-parse --show-toplevel`)
 		current_job=`git rev-parse --abbrev-ref HEAD`
-		current_tag=`git describe --always --abbrev=0`
 		
-		# if the user has not specified a issue id, then check to see if the
-		# tag has one, if not check to see if the branch has one. Use the first
-		# one that is found.
-		if [ "$TIMEKEEPER_ISSUE_ID" == "" ];
+		if [ "$TIMEKEEPER_USE_ANNOTATED_TAG" == "1" ];
 		then
-			TIMEKEEPER_ISSUE_ID=${current_tag/${current_tag%%#[0-9]*}/}
-		
-			if [ "$TIMEKEEPER_ISSUE_ID" != "" ];
+			git describe --abbrev=0 2> /dev/null
+
+			if [ $? -eq 0 ]
 			then
-				current_job=$current_tag
+				current_tag=`git describe --abbrev=0`
+				current_tag=${current_tag#$TIMEKEEPER_TAG_PREFIX}
+				
+				if [ "$current_tag" != "" ]
+				then
+					current_job=$current_tag
+				fi
 			fi
 		fi
 
@@ -66,21 +68,34 @@ then
 		fi
 
 		index=0
+			
+		# default on -for files that don't have section headers
+		current_section=1
 
 		# read the file
-		while IFS=, read -r project job start time last_commit;
+		while IFS=, read -r project job start time last_commit status note;
 		do
-			string=$project,$job,$start,$time,$last_commit
+			string=$project,$job,$start,$time,$last_commit,$status,$note
 
-			# find the current project
-			if [ "$current_project" = "$project" ];
+			# find the current section for the file
+			if [ "${project:0:1}" == "[" ] && [ "${project:0-1}" == "]" ]
 			then
-				if [ "$current_job" = "$job" ];
+				line=${project:1:${#project}-2}
+				current_section=0
+
+				# if "hostname:username" equal host and user name
+				if [ "${line#*:}" == "$USER" ] && [ "${line%:*}" == "$HOSTNAME" ]
 				then
-					# set the time to the current time in the file
-					string=$project,$job,$start,$time,$time
+					current_section=1
 				fi
-			fi;
+
+				string=$project
+
+			elif [ "$current_section" == "1" ] && [ "$current_project" == "$project" ] && [ "$current_job" == "$job" ];
+			then
+				# set the time to the current time in the file
+				string=$project,$job,$start,$time,$time,$status,$note
+			fi
 
 			timekeeper_file[$index]="$string"
 			index=$(($index+1))

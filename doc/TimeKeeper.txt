@@ -9,8 +9,8 @@
                                                       `--'                  ~
                                                                             ~
 Author:	  Peter Antoine
-Date:     March 15, 2013
-Version:  1.4.0
+Date:     April 26, 2013
+Version:  2.0.1
 HomePage: https://github.com/PAntoine/TimeKeeper
 
 For instructions on installing this file, type:
@@ -24,10 +24,11 @@ For instructions on installing this file, type:
     1. Contents...............................: |TimeKeeper-contents|
     2. Description............................: |TimeKeeper-description|
     3. Usage..................................: |TimeKeeper-usage|
-    4. Useful TimeKeeper Functions............: |TimeKeeper-functions|
-    5. Configuration..........................: |TimeKeeper-config|
-    6. Git Integration........................: |TimeKeeper-git-integration|
-    7. History................................: |TimeKeeper-history|
+    4. Using the Task List....................: |TimeKeeper-tasklist|
+    5. Useful TimeKeeper Functions............: |TimeKeeper-functions|
+    6. Configuration..........................: |TimeKeeper-config|
+    7. Git Integration........................: |TimeKeeper-git-integration|
+    8. History................................: |TimeKeeper-history|
 
 ==============================================================================
 2. Description                                   *TimeKeeper-description*
@@ -44,6 +45,11 @@ For details on the changes between versions see |TimeKeeper-history|.
 
 TimeKeeper will track the time that you spend in Vim. It will store this time
 in a comma separated value (CSV) file.
+
+If TimeKeeper finds a ".timekeeper.tmk" in the folder that is is loaded from
+it will use that file as the database file for timekeeper. Else, it will 
+default to the file in the root of the user tree, unless a specific file has
+been  given to timekeeper.
 
 The TimeKeeper plugin does not start recording time until you call the start
 recording function:
@@ -114,7 +120,51 @@ You can top up your time with extra time using the following function:
 It will add it to the current job.
 
 ==============================================================================
-4. Useful TimeKeeper Functions                      *TimeKeeper-functions*
+4. Using the Task List								*TimeKeeper-tasklist*
+
+TimeKeeper includes a task list function that will help manage the list of 
+tasks that TimeKeeper tracks. It is also easy to add any task to the the 
+list so it is not only directory and respository based tasks that can be
+tracked.
+
+This also allows for management of the tasks. It does not allow for the
+projects to be deleted only the tasks in the project.
+
+In the task list window, the following keys are active:
+>
+    <cr> - to toggle, also expand/collapse a project
+	A    - to add a project
+	a    - to add a Task
+	d    - to delete a Task
+    t    - add time to job
+    n    - toggle the notes
+	x    - to collapse a project 
+<
+Example of the task list:
+
+	Task List
+
+	▾ *timekeeper      0:00:14
+	 • 0:00:00  testing_task 
+	 ✗ 0:00:14 *master 
+
+	▸  default         0:00:00
+
+4.1 Task List notes Window.
+
+Each task also can have a 'note' attached. These notes are accessed via the
+list window by pressing 'n' when the job is connected. The notes are not
+used like a normal vim buffer (i.e. history and the rest is ignored). This is
+to make the status of notes more intuitive (and to save me globs of code to
+manage this). 
+
+The notes are stored with the task time data and is saved as a single lump of
+data. This means that it should be possible to commit the file to a VCS and
+have it work across machines.
+
+
+==============================================================================
+5. Useful TimeKeeper Functions                      *TimeKeeper-functions*
 
 There is only three function that are useful outside of the TimeKeeper and
 these functions are:
@@ -183,8 +233,11 @@ TimeKeeper_AddAdditionalTime()						*TimeKeeper_AddAdditionalTime()*
 		weeks. (The regex is copied from another of my projects that is why it
 		goes up to weeks).
 
+TimeKeeper_ToggleTaskWindow()						*TimeKeeper_ToggleTaskWindow()*
+		This function will toggle the task window.
+
 ==============================================================================
-5. Configuration									*TimeKeeper-configuration*
+6. Configuration									*TimeKeeper-configuration*
 
 The following are the globals that are used to configure the way that timekeeper
 handles the tracking of time. The default is in square brackets.
@@ -202,7 +255,7 @@ g:TimeKeeperDefaultJob								*g:TimeKeeperDefaultJob*
 g:TimeKeeperUpdateFileTimeSec						*g:TimeKeeperUpdateFileTimeSec*
 		The frequency that the timesheet file will be updated. [60 * 15 - 15 mins]
 
-g:TimeKeeperUseLocal								*g:TimeKeeperUseLocal*
+g:TimeKeeperUseLocal	- deprecated 				*g:TimeKeeperUseLocal*
 		If this flag is set then the timekeeper will create a file at the cwd of
 		the editor. If your vim has been compiled without |clientserver| then this
 		will default to 1. [0]
@@ -250,7 +303,7 @@ If you have changed g:TimeKeeperFileName this variable should be set to match,
 the sensible way to handle this would be to set this value and in the .vimrc
 set g:TimeKeeperFileName to this value, i.e.:
 
-    let gt:TimeKeeperFileName = $TIMEKEEPER_TIMESHEET
+    let g:TimeKeeperFileName = $TIMEKEEPER_TIMESHEET
 
 This value does not need to be set.
 
@@ -269,8 +322,30 @@ If you are not using issue numbers then the commit will use a timestamp that
 has the just times. This forces the timestamp to just deliver the raw timestamps
 in seconds, rather than human readable timestamps.
 
+TIMEKEEPER_USE_ANNOTATED_TAG [0]					*TIMEKEEPER_USE_ANNOTATED_TAG*
+If you are using annotated tags, set this then then commit hooks will also use
+the annotated tags. If the tag does not have an issue number but the branch does
+then the time will be allocated to the issue number that is taken from the branch.
+Again the sensible way to handle this would be as follows:
+
+In the .bashrc/.profile:
+
+	export TIMEKEEPER_USE_ANNOTATED_TAG=1
+
+and in the .vimrc:
+
+	let g:TimeKeeperUseAnnotatedTags = $TIMEKEEPER_USE_ANNOTATED_TAG
+
+TIMEKEEPER_TAG_PREFIX [""]							*TIMEKEEPER_TAG_PREFIX*
+If you are using tag prefixes, you must set this so that the git hook can find
+the job in the jobfile. Without this the job will not be found. As above it
+should be used in the same way.
+
+	let g:TimeKeeperTagPrefix = $TIMEKEEPER_TAG_PREFIX
+
+
 ==============================================================================
-6. Git Integration                               *TimeKeeper-git-integration*
+7. Git Integration                               *TimeKeeper-git-integration*
 
 There are two git hooks included with the TimeKeeper system, a
 `prepare-commit-msg` hook and a `post-commit` hook. These hooks will
@@ -347,7 +422,7 @@ Then you can use the g:TimeKeeperTagPrefix to remove the 'start_' and leave the
 'job_name'. This is simply done by setting the tag prefix.
 
 ==============================================================================
-7. History                                       *TimeKeeper-history*
+8. History                                       *TimeKeeper-history*
 
 Version   Author Date        Changes
 -------   ------ ----------  -------------------------------------------------
@@ -373,5 +448,20 @@ Version   Author Date        Changes
 1.4.0     PA     15.03.2013  Added support for annotated tags, also have removed
                              a call to sed that should make the thing easier to
 							 use on windows.
+1.4.1     PA     17.03.2013  Added the tag support to the git hooks.
+1.4.2     PA     25.03.2013  Fixed the use of annotated tags and added to the
+                             githook the filter for the tag start.
+2.0.0     PA     01.04.2013  Added the task list window.
+                             Depreciated local file flag, now defaults to using
+							 a localfile if it finds one. Local file name has
+							 changed so does not pollute the working directory.
+							 Added the task notes window.
+							 Added multi-host/user time tracking.
+							 Fixed a couple of script issues.
+2.0.1     PA     26.04.2013  GitHub User: mhhf found the following two problems
+                             on the Mac:
+							 - Guard did not work correctly.
+							 - bash command not portable.
+							 Applied the supplied changes.
 
 vim: ts=4 ft=help tw=78
